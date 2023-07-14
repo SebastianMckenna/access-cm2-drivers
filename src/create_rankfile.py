@@ -27,7 +27,7 @@ slots_per_host = int(os.environ['NSLOTS'])
 sockets_per_host = 2
 slots_per_socket = slots_per_host / sockets_per_host
 
-share_nodes = os.environ['SHARE_NODES'] == 'true'
+share_nodes = os.environ['SHARE_NODES'].lower() == 'true'
 
 # Assume that the number of threads evenly divides a single socket
 assert slots_per_socket % um_decomp['omp'] == 0
