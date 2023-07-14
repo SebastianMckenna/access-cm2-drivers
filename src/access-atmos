@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# *****************************COPYRIGHT******************************
+# (C) Crown copyright Met Office. All rights reserved.
+# For further details please refer to the file COPYRIGHT.txt
+# which you should have received as part of this distribution.
+# *****************************COPYRIGHT******************************
+#-----------------------------------------------------------------------
+# Code Owner: Please refer to the UM file CodeOwners.txt
+# This file belongs in section: Rose scripts
+#-----------------------------------------------------------------------
+# NAME
+#     um-atmos
+#
+# SYNOPSIS
+#     um-atmos [EXE ...]
+#
+# DESCRIPTION
+#     Set up the environment and trigger the UM executable with
+#     "rose mpi-launch".
+#
+# ARGUMENTS
+#     EXE
+#          The command to launch. Defaults:
+#          1. $ATMOS_EXEC
+#          2. um-atmos.exe
+#
+# ENVIRONMENT VARIABLES
+#     This script uses the following variables:
+#
+#     ATMOS_EXEC
+#          A command to launch. Default=um-atmos.exe.
+#     ATMOS_KEEP_MPP_STDOUT
+#          Switch to keep stdout files after a successful run. Default=false.
+#     ATMOS_STDOUT_FILE
+#          Base filename for model stdout (PE) files.
+#          Default=pe_output/atmos.fort6.pe
+#     CONTINUE
+#          Flag for Nrun - If not provided a new history file is created from INITHIS.
+#          Default=false.
+#     DR_HOOK
+#          Activate Dr Hook. Default=0 (off).
+#     DR_HOOK_OPTS
+#          Options to pass to Dr Hook. Default=noself.
+#     FLUME_IOS_NPROC
+#          Number of processors for the I/O server.
+#     HISTORY
+#          Path to the history file (absolute or relative)
+#     PRINT_STATUS
+#          Model verbosity. Default=PrStatus_Normal.
+#     STASHMSTR
+#          Location of the atmosphere STASHmaster file.
+#          Default=$UMDIR/vn$VN/ctldata/STASHmaster.
+#     UMDIR
+#          Location of UM installation.
+#     UM_ATM_NPROCX
+#          Number of processors east-west.
+#     UM_ATM_NPROCY
+#          Number of processors north-south.
+#     UM_THREAD_LEVEL
+#          MPI threading level. Default=MULTIPLE.
+#     VN
+#          UM version.
+#-----------------------------------------------------------------------
+
+set -eu
+
+# Source common UM script functions from file
+um_scripts=$(dirname "$0")/um_script_functions
+if [ -f "$um_scripts" ] ; then
+    . $um_scripts
+else
+    echo "[FAIL] UM script functions file not found: $um_scripts " 1>&2
+    echo "[FAIL] Ensure the UM file above is located in the same " 1>&2
+    echo "[FAIL] directory as this script                        " 1>&2
+    exit 1
+fi
+
+if [[ -z ${VN:-} ]]; then
+  echo "[FAIL] UM version (VN=x.y) not defined in the environment." >&2
+  exit 10
+fi
+if [[ ! $VN =~ ^([0-9])+\.([0-9])+$ ]]; then
+  echo "[FAIL] UM version \$VN=\"$VN\" not of the form (VN=x.y)."
+  exit 20
+fi
+
+export DR_HOOK=${DR_HOOK:-0}
+export DR_HOOK_OPT=${DR_HOOK_OPT:-noself}
+export PRINT_STATUS=${PRINT_STATUS:-PrStatus_Normal}
+export UM_THREAD_LEVEL=${UM_THREAD_LEVEL:-MULTIPLE}
+
+# Create new or use existing history file
+export HISTORY=${HISTORY:-atmos.xhist}
+if [[ ${CONTINUE:-false} == "false" ]] ; then
+  rm -f $HISTORY
+else
+  if [[ ! -r $HISTORY ]]; then
+    echo "[FAIL] Cannot read history file $HISTORY" >&2
+    exit 30
+  fi
+fi
+export HISTORY_TEMP=thist
+
+# Processor variables
+export UM_NPES=$((UM_ATM_NPROCX * UM_ATM_NPROCY))
+
+cd $ATM_RUNDIR
+cat > errflag << EOF
+F  No request to stop model
+EOF
+
+export HOUSEKEEP=hkfile
+export STASHC=STASHC
+export ATMOSCNTL=ATMOSCNTL
+export SHARED_NLIST=${SHARED_FNAME:-SHARED}
+export ERROR_FLAG=errflag
+export STASHMASTER=${STASHMSTR:-$UMDIR/vn$VN/ctldata/STASHmaster}
+export IDEALISE=IDEALISE
+export IOSCNTL=IOSCNTL
+
+export STDOUT_FILE=${ATMOS_STDOUT_FILE:-pe_output/atmos.fort6.pe}
+mkdir -p $(dirname $STDOUT_FILE)
+# Delete any previous .pe* files:
+rm -f $STDOUT_FILE*
+
+export NPROC=$((UM_NPES + FLUME_IOS_NPROC))
+
+COMMAND="${@:-${ATMOS_EXEC:-$(dirname "$0")/um-atmos.exe}}"
+usf_which $COMMAND
+usf_print_script_path
+
+# Since we need to process some data after the executable we can trap the EXIT
+# signal to do this automatically whenever this script exits.  This also
+# catches times when this script is killed for any reason.
+SIGNALS='EXIT'
+FINALLY() {
+  for S in $SIGNALS; do
+    trap '' $S # Switch off traps
+  done
+
+  PE0_SUFFIX=$(echo $((NPROC - 1)) | sed s/./0/g)
+  UM_PE0_STDOUT_FILE="${STDOUT_FILE}${PE0_SUFFIX}"
+  if [[ -s "$UM_PE0_STDOUT_FILE" ]]; then
+    echo '%PE0 OUTPUT%'
+    cat "$UM_PE0_STDOUT_FILE"
+  elif [[ -f "$UM_PE0_STDOUT_FILE" ]]; then
+    echo "PE0 file exists, but has zero size"
+  else
+    echo "Could not find PE0 output file: $UM_PE0_STDOUT_FILE"
+  fi
+
+  usf_flag_ereports ${STDOUT_FILE}
+
+  # Remove output from other PEs unless requested otherwise
+  if [[ ${ATMOS_KEEP_MPP_STDOUT:-false} == "false" ]] ; then
+    for file in ${STDOUT_FILE}* ; do
+      if [[ $file != "$UM_PE0_STDOUT_FILE" ]]; then
+        rm $file
+      fi
+    done
+  fi
+
+  if [[ -f "$UM_PE0_STDOUT_FILE" ]]; then
+    # rose-ana expects fixed filenames so we link to .pe0 as otherwise the
+    # filename depends on the processor decomposition
+    if [[ $UM_PE0_STDOUT_FILE != ${STDOUT_FILE}0 ]]; then
+      ln -sf $(basename $STDOUT_FILE)$PE0_SUFFIX ${STDOUT_FILE}0
+    fi
+  fi
+}
+
+for S in $SIGNALS; do
+  trap 'FINALLY' $S
+done
+
+# rose mpi-launch -v $COMMAND
+
+# ACCESSRUNCMD not compatible with rose mpi-launch at the moment.
+# Using --mca rmaps_base_mapping_policy '' causes problems with totalview so set as
+# environment variable instead
+# /apps/openmpi/wrapper/mpirun --mca rmaps_base_mapping_policy '' ${ACCESSRUNCMD}
+export OMPI_MCA_rmaps_base_mapping_policy=''
+mpirun ${ACCESSRUNCMD}
