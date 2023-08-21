@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+# Driver script for ACCESS-CM2 in AMIP mode.
+# Modifies xhist so that runs can continue with files copied from archive
+
+#-----------------------------------------------------------------------
+
+set -xeu
+
+echo "ACCESS AMIP DRIVER", $PWD
+
+HIST_FILE=$RUNID.xhist
+WARM_RESTART=false
+
+# WARM_RESTART only applied on the first cycle
+if [[ $CYLC_TASK_CYCLE_POINT != $CYLC_SUITE_INITIAL_CYCLE_POINT ]]; then
+    WARM_RESTART="false"
+fi
+if [[ ${CONTINUE,,} == "true"  && ${WARM_RESTART,,} == "false" ]] ; then
+
+  cd $DATAM
+  # Delete all the &NLSTCALL_PP_HIST sections from xhist so that the files do not
+  # need to be present. Update paths for CHECKPOINT_DUMP_IM and STREQLOG
+  PREVDATE=$(cylc cyclepoint --offset=-P1D --template=CCYYMMDD)
+  fix_xhist.py ${ARCHIVEDIR}/restart/atm/${RUNID}.xhist-${PREVDATE} ${RUNID}.xhist
+  CHECKPOINT_DUMP_IM=$(basename $(get_checkpoint_name.py ${RUNID}.xhist))
+  ln -sf ${ARCHIVEDIR}/restart/atm/$CHECKPOINT_DUMP_IM .
+
+  # Check that the restart file dates matches the cycle date. Don't check on first step
+  # of a warm restart, because it may have been altered
+  check_restart_dates.py
+  if [[ $? != 0 ]]; then
+    echo "Mismatch in restart dates"
+    exit 1
+  fi
+fi
+
+um-atmos
