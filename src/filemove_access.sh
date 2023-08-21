@@ -3,9 +3,6 @@
 set -x
 
 mkdir -p $ARCHIVEDIR/restart/atm
-mkdir -p $ARCHIVEDIR/restart/cpl
-mkdir -p $ARCHIVEDIR/restart/ice
-mkdir -p $ARCHIVEDIR/restart/ocn
 mkdir -p $ARCHIVEDIR/history/atm
 
 cd $DATAM
@@ -40,6 +37,15 @@ if [[ $? != 0 ]]; then
   echo "Error moving atm history files"
   exit 1
 fi
+
+if [[ -z ${COUPLER:-} ]]; then
+  # Not a coupled model so now done.
+  exit 0
+fi
+
+mkdir -p $ARCHIVEDIR/restart/cpl
+mkdir -p $ARCHIVEDIR/restart/ice
+mkdir -p $ARCHIVEDIR/restart/ocn
 
 cd $CPL_RUNDIR
 
