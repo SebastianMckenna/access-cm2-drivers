@@ -6,6 +6,7 @@
 
 import os, datetime, collections, um2netcdf4, shutil
 from pathlib import Path
+from dateutil import rrule
 
 CYLC_TASK_CYCLE_POINT = os.environ['CYLC_TASK_CYCLE_POINT']
 NEXT_CYCLE = os.environ['NEXT_CYCLE']
@@ -30,9 +31,10 @@ if USE_JOBFS:
 # This should get the stream names from the model setup, filename_base
 prefix = RUNID+'a.p'
 # Strip off time zone (if present) and uses the YYYYMMDD part
-date = datetime.datetime.strptime(CYLC_TASK_CYCLE_POINT[:8], '%Y%m%d')
-nextdate = datetime.datetime.strptime(NEXT_CYCLE[:8], '%Y%m%d')
-if not (date!=nextdate and date.day==1 and nextdate.day==1):
+start_date = datetime.datetime.strptime(CYLC_TASK_CYCLE_POINT[:8], '%Y%m%d')
+next_date = datetime.datetime.strptime(NEXT_CYCLE[:8], '%Y%m%d')
+end_date = next_date - datetime.timedelta(seconds=1)
+if not (start_date!=next_date and start_date.day==1 and next_date.day==1):
     raise Exception("netCDF conversion requires run length to be in months")
 
 for stream in STREAMS:
@@ -42,9 +44,9 @@ for stream in STREAMS:
         # Skip spaces, commas etc
         continue
     # Loop over months
-    year = date.year
-    month = date.month
-    while True:
+    for date in rrule.rrule(rrule.MONTHLY, dtstart=start_date, until=end_date):
+        year = date.year
+        month = date.month
         tmpdate = datetime.date(year, month, 1)
         monthstr = tmpdate.strftime('%b').lower()
         # Python < 3.8 strftime doesn't zero pad years
@@ -76,11 +78,3 @@ for stream in STREAMS:
             um2netcdf4.process(input, output, args)
         if REMOVE_FF:
             input.unlink()
-
-        # Doesn't seem to be a month iterator in python
-        month += 1
-        if month == 13:
-            month = 1
-            year += 1
-        if year==nextdate.year and month==nextdate.month:
-            break
