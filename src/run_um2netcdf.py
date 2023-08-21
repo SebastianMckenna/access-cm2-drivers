@@ -4,9 +4,10 @@
 # filename_base='$DATAM/${RUNID}a.pa%C'
 # Runs in the archive directory
 
-import os, datetime, collections, um2netcdf4, shutil
+import os, datetime, collections, um2netcdf4, shutil, re, f90nml
 from pathlib import Path
 from dateutil import rrule
+from collections.abc import Sequence
 
 CYLC_TASK_CYCLE_POINT = os.environ['CYLC_TASK_CYCLE_POINT']
 NEXT_CYCLE = os.environ['NEXT_CYCLE']
@@ -20,7 +21,7 @@ except:
     arch = False
 print("archive (history/atm): ", arch)
 REMOVE_FF = os.environ['REMOVE_FF'].lower() == 'true'
-print("REMOVE_FF", os.environ['REMOVE_FF'], REMOVE_FF)
+print("REMOVE_FF", REMOVE_FF)
 try:
     USE_JOBFS = os.environ['USE_JOBFS'].lower() == 'true'
 except KeyError:
@@ -34,23 +35,65 @@ prefix = RUNID+'a.p'
 start_date = datetime.datetime.strptime(CYLC_TASK_CYCLE_POINT[:8], '%Y%m%d')
 next_date = datetime.datetime.strptime(NEXT_CYCLE[:8], '%Y%m%d')
 end_date = next_date - datetime.timedelta(seconds=1)
-if not (start_date!=next_date and start_date.day==1 and next_date.day==1):
-    raise Exception("netCDF conversion requires run length to be in months")
+
+# Get the reinitialisation unit and frequency from the UM namelist
+ATM_RUNDIR=os.environ['ATM_RUNDIR']
+nml = f90nml.read(Path(ATM_RUNDIR)/'ATMOSCNTL')
+stream_unit = {}
+stream_step = {}
+# Not a list if there's only a single item
+if isinstance(nml['nlstcall_pp'], Sequence):
+    iterator = nml['nlstcall_pp']
+else:
+    iterator = [nml['nlstcall_pp']]
+for n in iterator:
+    basename = Path(n['filename_base']).name
+    # Expected form of the basename
+    reg = re.compile(f'{RUNID}a.p([a-z0-9])%C')
+    m = reg.match(basename)
+    if not m:
+        raise Exception("Unexpected string in filename_base in ATMOSCNTL", n['filename_base'])
+    stream = m.group(1)
+    stream_step[stream] = n['reinit_step']
+    if n['reinit_unit']==2:
+        stream_unit[stream] = rrule.DAILY
+    elif n['reinit_unit']==4:
+        stream_unit[stream] = rrule.MONTHLY
+    else:
+        raise Exception('Stream reinit_unit not supported', n)
+
+# Climate mean has assumed monthly reinit for CM2
+mean_basename = ""
+try:
+    mean_basename = nml['nlstcgen']['mean_1_filename_base']
+except KeyError:
+    pass
+if mean_basename:
+    mean_basename = Path(mean_basename).name
+    if mean_basename != f'{RUNID}a.p%C':
+        raise Exception("Unexpected name for climate mean", mean_basename)
+    stream_step['m'] = 1
+    stream_unit['m'] = rrule.MONTHLY
 
 for stream in STREAMS:
 
-    print('stream: '+stream)
     if not stream.isalnum():
         # Skip spaces, commas etc
         continue
-    # Loop over months
-    for date in rrule.rrule(rrule.MONTHLY, dtstart=start_date, until=end_date):
-        year = date.year
-        month = date.month
-        tmpdate = datetime.date(year, month, 1)
-        monthstr = tmpdate.strftime('%b').lower()
-        # Python < 3.8 strftime doesn't zero pad years
-        datestr = '%4.4d%s' % (year, monthstr)
+    # Loop over time
+    print(f'stream: {stream}')
+    if stream not in stream_unit:
+        print(f"Warning: requested stream {stream} not found in model namelist")
+        continue
+    for date in rrule.rrule(stream_unit[stream], interval=stream_step[stream],
+                            dtstart=start_date, until=end_date):
+
+        # Behaviour of the UM %C format
+        if stream_unit[stream] == rrule.MONTHLY:
+            datestr = date.strftime('%04Y%b').lower()
+        else:
+            datestr = date.strftime('%04Y%m%d')
+
         input_file = prefix + stream + datestr
         output_file = input_file + '.nc'
         if arch:
