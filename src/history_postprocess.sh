@@ -42,8 +42,9 @@ else
   SUFFIX="-${ENDDATE}"
 fi
 
-if [ -e ocean_scalar*.nc ]; then
-  for file in ocean-scalar*.nc; do
+# scalar files are named differently in original CM2 and COSIMA diag_tables
+if [ -e ocean[_\-]scalar*.nc ]; then
+  for file in ocean[_\-]scalar*.nc; do
     ncatted -a calendar,time,m,c,proleptic_gregorian -a calendar_type,time,d,, $file
     mv $file $ARCHIVEDIR/history/ocn/${file}${SUFFIX}
   done

@@ -38,7 +38,7 @@ if [[ $? != 0 ]]; then
   exit 1
 fi
 
-if [[ -z ${COUPLER:-} ]]; then
+if [[ -z ${CPL_RUNDIR:-} ]]; then
   # Not a coupled model so now done.
   exit 0
 fi
