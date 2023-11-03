@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eu
+
 mkdir -p $ARCHIVEDIR/history/atm
 mkdir -p $ARCHIVEDIR/history/cpl
 mkdir -p $ARCHIVEDIR/history/ice
