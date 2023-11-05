@@ -1,5 +1,6 @@
 #!/bin/bash
 
+set -u
 ulimit -s unlimited
 
 cd $OCN_RUNDIR/HISTORY
@@ -10,7 +11,6 @@ for histfile in *.nc.0000; do
   if [[ -f $output ]]; then
     echo "Output file $output exists, removing"
     rm $output
-  fi  
+  fi
   ~access/access-cm2/utils/mppnccombine_nc4 -n4 -z -v -r $output ${basefile}.????
 done
-

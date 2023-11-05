@@ -1,6 +1,6 @@
 #! /bin/bash
 
-set -x
+set -ux
 
 mkdir -p $ARCHIVEDIR/restart/atm
 mkdir -p $ARCHIVEDIR/history/atm
