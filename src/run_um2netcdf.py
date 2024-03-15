@@ -118,6 +118,9 @@ for stream in STREAMS:
             tmp_input.unlink()
             shutil.move(tmp_output, output)
         else:
-            um2netcdf4.process(input, output, args)
+            if os.path.exists(input):
+                um2netcdf4.process(input, output, args)
+            else:
+                print("not all files are available, processing for this month not complete")
         if REMOVE_FF:
             input.unlink()

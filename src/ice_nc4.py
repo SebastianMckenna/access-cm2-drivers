@@ -52,8 +52,16 @@ for f in monthly:
         # to give complete weeks, so need to check actual month.
         if date.month == month:
             # strftime doesn't format years before 1000 properly
-            cmd.append("iceh.%4.4d-%2.2d-%2.2d.nc" %
-                       (date.year, date.month, date.day))
+            # check if the file exists before appending to our list
+            if os.path.exists("iceh.%4.4d-%2.2d-%2.2d.nc" %
+                                (date.year, date.month, date.day)):
+                cmd.append("iceh.%4.4d-%2.2d-%2.2d.nc" %
+                           (date.year, date.month, date.day))
+            else:
+                print("iceh.%4.4d-%2.2d-%2.2d.nc" %
+                       (date.year, date.month, date.day) + 
+                       " does not exist, skip this file")
+
     cmd.append("iceh_d%s" % f[4:])
     if verbose:
         print(cmd)
